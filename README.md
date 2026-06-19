@@ -34,11 +34,7 @@
 
 ### 安装脚本
 
-**方式一：通过 GreasyFork 一键安装（推荐）**
-
-点击：[→ 安装 pixiv-snap](https://greasyfork.org/scripts/你的脚本ID)
-
-**方式二：手动安装**
+**手动安装**
 
 1. 下载本仓库中的 [`pixiv-snap.user.js`](pixiv-snap.user.js)
 2. 在脚本管理器中选择「从文件安装」
