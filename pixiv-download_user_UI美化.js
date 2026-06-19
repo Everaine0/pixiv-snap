@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pixiv 一键下载器
 // @namespace    https://github.com/Everaine0/pixiv-snap
-// @version      1.0.0
-// @description  在 Pixiv 作品页添加固定悬浮按钮，复用浏览器 Cookie 直接下载：插画多页自动打包 ZIP，动图下载帧包+帧时序JSON，小说下载为带元数据的 TXT。进度显示已优化为纯 x/x 格式。
+// @version      2.0.0
+// @description  在 Pixiv 作品页添加固定悬浮按钮，复用浏览器 Cookie 直接下载：插画多页自动打包 ZIP，动图下载帧包+帧时序JSON，小说下载为纯净 TXT + 独立 metadata.json 打包成 ZIP。进度显示已优化为纯 x/x 格式。
 // @author       Everaine0
 // @match        https://www.pixiv.net/artworks/*
 // @match        https://www.pixiv.net//artworks/*
@@ -503,44 +503,15 @@ async function downloadNovel(id, onProgress) {
 
   onProgress({ stage: 'building', text: '生成小说文件…' });
 
-  // 构建带元数据头部的 TXT 内容
-  const headerLines = [
-    `Title: ${title}`,
-    `Author: ${author}`,
-    `Author ID: ${userId}`,
-    `Tags: ${tags.join(', ') || 'None'}`,
-    `Original URL: ${novelUrl}`,
-    `Created: ${createDate ? new Date(createDate).toISOString() : 'Unknown'}`,
-    `Word Count: ${wordCount}`,
-    `Bookmarks: ${bookmarkCount}`,
-  ];
-
-  // 如果有系列信息，追加系列头
-  if (seriesId && seriesTitle) {
-    headerLines.push(`Series: ${seriesTitle} (ID: ${seriesId})`);
-  }
-
-  // 如果有简介，追加简介
-  if (description) {
-    headerLines.push('');
-    headerLines.push(`Description: ${description}`);
-  }
-
-  headerLines.push('');
-  headerLines.push('---');
-  headerLines.push('');
-
-  const content = headerLines.join('\n') + novelText;
-
-  // 构建文件名
+  // 构建文件名前缀（不含扩展名）
   const ctx = { id, title, author };
-  const filename = renderTpl(CONFIG.novelNameTpl, ctx) + '.txt';
+  const baseName = renderTpl(CONFIG.novelNameTpl, ctx);
 
-  // 下载 TXT 文件
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  triggerDownload(blob, filename);
+  // ── 纯净 TXT：仅正文，不含任何元数据头部 ──
+  const txtBytes = strToUtf8Bytes(novelText);
+  const txtFilename = baseName + '.txt';
 
-  // 同时生成并下载元数据 JSON
+  // ── 独立 metadata JSON ──
   const pixivMetadata = {
     pixiv_id: Number(id),
     title: title,
@@ -560,13 +531,21 @@ async function downloadNovel(id, onProgress) {
   // 清理 undefined 字段
   Object.keys(pixivMetadata).forEach(key => pixivMetadata[key] === undefined && delete pixivMetadata[key]);
 
-  setTimeout(() => {
-    const metaBlob = new Blob([JSON.stringify(pixivMetadata, null, 2)], { type: 'application/json' });
-    triggerDownload(metaBlob, renderTpl(CONFIG.novelNameTpl, ctx) + '_metadata.json');
-  }, 600);
+  const jsonBytes = strToUtf8Bytes(JSON.stringify(pixivMetadata, null, 2));
+  const jsonFilename = baseName + '_metadata.json';
+
+  // ── 打包为单个 ZIP ──
+  onProgress({ stage: 'zipping', text: '打包 ZIP…' });
+  const zipEntries = [
+    { name: txtFilename, data: txtBytes },
+    { name: jsonFilename, data: jsonBytes },
+  ];
+  const zipBlob = await buildZip(zipEntries, () => {});
+  const zipFilename = baseName + '.zip';
+  triggerDownload(zipBlob, zipFilename);
 
   onProgress({ stage: 'done', text: '小说下载完成' });
-  return { type: 'novel', filename, wordCount, title, author };
+  return { type: 'novel', filename: zipFilename, wordCount, title, author };
 }
 
 /* ============================================================
@@ -655,7 +634,7 @@ function createUI() {
       $typeBadge.className = 'pfd-type-badge pfd-novel-badge';
       $dlCur.className = 'pfd-novel-btn';
       $dlCur.innerHTML = `${ICON_NOVEL_SVG} 下载小说`;
-      $dlCur.title = '下载小说为 TXT（含元数据头部）';
+      $dlCur.title = '下载小说为 ZIP（纯净 TXT + metadata.json）';
       $progress.classList.add('pfd-novel-progress');
       $btn.innerHTML = ICON_NOVEL_SVG;
 
